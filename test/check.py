@@ -27,12 +27,13 @@ def font_of(all_spans, prefix):
 
 
 failures = []
+report = []
 
 
 def expect_font(all_spans, label, prefix, wanted):
     font = font_of(all_spans, prefix)
     ok = font is not None and wanted.lower() in font.lower()
-    print(f"::notice::{label}: '{prefix}' printed in {font}" + ("" if ok else f" (expected {wanted})"))
+    report.append(f"{label}: '{prefix}' printed in {font}" + ("" if ok else f" (expected {wanted})"))
     if not ok:
         failures.append(f"{label}: '{prefix}' printed in {font}, expected {wanted}")
 
@@ -51,19 +52,22 @@ expect_font(docx, "Word", "Arial - The quick", "LiberationSans")
 expect_font(docx, "Word", "Times New Roman - The quick", "LiberationSerif")
 
 # Excel: Aptos Narrow is the default cell font.
-expect_font(xlsx, "Excel", "Aptos Narrow - The quick", "Narrow")
-expect_font(xlsx, "Excel register cells (Aptos Narrow)", "Example Foods", "Narrow")
+expect_font(xlsx, "Excel", "Aptos Narrow - The quick", "RobotoCondensed")
+expect_font(xlsx, "Excel register cells (Aptos Narrow)", "Example Foods", "RobotoCondensed")
 
 # Excel's built-in short date: the register's first row is 1 January 2026.
 dates = sorted({word for text, _ in xlsx for word in text.split()
                 if re.fullmatch(r"\d{1,4}[/.-]\d{1,2}[/.-]\d{1,4}", word)})
-print(f"::notice::Excel short dates print like: {', '.join(dates[:3])}")
+report.append(f"Excel short dates print like: {', '.join(dates[:3])}")
 if "2026/01/01" not in dates:
     failures.append(f"Excel short date: expected 2026/01/01, found {dates[:3]}")
 
 # Not checked, just reported: how the register's rand amounts print with the new locale.
 amounts = [text for text, _ in xlsx if text.startswith("R ")]
-print(f"::notice::Excel rand amounts print like: {', '.join(amounts[:3])}")
+report.append(f"Excel rand amounts print like: {', '.join(amounts[:3])}")
+
+# One notice for the lot: GitHub only shows the first 10 annotations of each kind per step.
+print("::notice title=Conversion check::" + "%0A".join(report))
 
 for failure in failures:
     print(f"::error::{failure}")

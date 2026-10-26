@@ -15,9 +15,9 @@ LABEL org.opencontainers.image.source="https://github.com/BEA-Consulting/beam-go
 
 USER root
 
-# fonts-liberation (v1) adds Liberation Sans Narrow, the metric match for Arial Narrow.
+# fonts-roboto-unhinted adds Roboto Condensed, the substitute for Aptos Narrow.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends locales fonts-liberation \
+ && apt-get install -y --no-install-recommends locales fonts-roboto-unhinted \
  && sed -i 's/^# *\(en_ZA.UTF-8 UTF-8\)/\1/' /etc/locale.gen \
  && locale-gen \
  && rm -rf /var/lib/apt/lists/*
