@@ -1,0 +1,78 @@
+name: Build, test and publish
+
+# Builds the image, converts the two test documents with it, checks the fonts and dates in the
+# resulting PDFs, and - only on main, and only if the checks pass - publishes it to
+# ghcr.io/bea-consulting/beam-gotenberg. The PDFs are kept as a run artifact for a visual check.
+#
+# To move to a newer Gotenberg: change GOTENBERG_VERSION, reset BEAM_REVISION to 1, push, then
+# point the Container App at the new tag. Any other change: bump BEAM_REVISION.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  GOTENBERG_VERSION: "8.38.1"
+  BEAM_REVISION: "1"
+  IMAGE: ghcr.io/bea-consulting/beam-gotenberg
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          docker build --build-arg GOTENBERG_VERSION=$GOTENBERG_VERSION -t beam-gotenberg:test .
+
+      - name: Check it still runs as the stock image's user
+        run: |
+          docker pull -q gotenberg/gotenberg:$GOTENBERG_VERSION
+          stock=$(docker inspect -f '{{.Config.User}}' gotenberg/gotenberg:$GOTENBERG_VERSION)
+          ours=$(docker inspect -f '{{.Config.User}}' beam-gotenberg:test)
+          echo "stock: '$stock', ours: '$ours'"
+          [ "$stock" = "$ours" ] || { echo "::error::User changed from '$stock' to '$ours' - fix the USER line in the Dockerfile."; exit 1; }
+
+      - name: Convert the test documents
+        run: |
+          docker run -d --name gotenberg -p 3000:3000 beam-gotenberg:test
+          for i in $(seq 1 60); do curl -sf http://localhost:3000/health > /dev/null && break; sleep 2; done
+          curl -sf http://localhost:3000/health
+          mkdir -p out
+          curl -sf -o out/docx.pdf -F "files=@test/BEAM conversion test.docx" http://localhost:3000/forms/libreoffice/convert
+          curl -sf -o out/xlsx.pdf -F "files=@test/BEAM conversion test.xlsx" http://localhost:3000/forms/libreoffice/convert
+          ls -l out
+
+      - name: Check fonts and dates
+        run: |
+          pip install --quiet pymupdf
+          python test/check.py out/docx.pdf out/xlsx.pdf
+
+      - name: Keep the PDFs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-pdfs
+          path: out/
+          if-no-files-found: ignore
+
+      - name: Container logs
+        if: failure()
+        run: docker logs gotenberg || true
+
+      - name: Publish
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          tag="$GOTENBERG_VERSION-beam.$BEAM_REVISION"
+          docker tag beam-gotenberg:test $IMAGE:$tag
+          docker push -q $IMAGE:$tag
+          echo "::notice::Published $IMAGE:$tag"
